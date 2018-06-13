@@ -197,8 +197,12 @@ void D3D12RaytracingDynamicGeometry::UpdateBottomLevelASTransforms()
 	{
 		// Animate along Y coordinate.
 		XMMATRIX transform = bottomLevelAS.GetTransform();
-		float distFromOrigin = XMVectorGetX(XMVector4Length(transform.r[3]));
-		float posY = t * (baseAmplitude + 0.35f * distFromOrigin);
+
+		// BLAS is generated along X,Z dimensions from the origin, 
+		// retrieve their position to scale up dynamic Y axis transform per distance from origin.
+		XMVECTOR translationXZ = XMVectorSetByIndex(transform.r[3], 0.0f, 1);
+		float distFromOrigin = XMVectorGetX(XMVector4Length(translationXZ));
+		float posY = t * (baseAmplitude + 0.3f * distFromOrigin);
 
 		transform.r[3] = XMVectorSetByIndex(transform.r[3], posY, 1);
 		bottomLevelAS.SetTransform(transform);
@@ -219,13 +223,20 @@ void D3D12RaytracingDynamicGeometry::UpdateGeometryTransforms()
 	float animationDuration = 12.0f;
 	float curTime = static_cast<float>(m_timer.GetTotalSeconds());
 	float t = CalculateAnimationInterpolant(curTime, animationDuration);
+	t -= 0.5f;
 	float rotAngle = XMConvertToRadians(t * 360.0f);
 
 	// Rotate around offset center.
+#define SIMPLE_ANIMATION 1
+#if SIMPLE_ANIMATION
+	XMFLOAT4 localTranslationVector = XMFLOAT4(0.0f, 0.0f, 1.0f, 0.0f);
+	float amplitude = 64 * m_geometryRadius;
+	XMMATRIX localTransform = XMMatrixTranslationFromVector(t * amplitude * XMLoadFloat4(&localTranslationVector));
+#else
 	XMMATRIX localTranslation = XMMatrixTranslation(0.0f, 0.0f, 0.5f * m_geometryRadius);
 	XMMATRIX localRotation = XMMatrixRotationY(XMConvertToRadians(rotAngle));
 	XMMATRIX localTransform = localTranslation * localRotation;
-
+#endif
 	for (int iY = 0, i = 0; iY < dim; iY++)
 		for (int iX = 0; iX < dim; iX++)
 			for (int iZ = 0; iZ < dim; iZ++, i++)
@@ -243,7 +254,6 @@ void D3D12RaytracingDynamicGeometry::UpdateGeometryTransforms()
 					0.0f);
 				XMMATRIX transformWithinBLAS= XMMatrixTranslationFromVector(stepDistance * XMLoadFloat4(&translationVector));
 				XMMATRIX transform = localTransform * transformWithinBLAS;
-
 				for (UINT j = 0; j < m_vBottomLevelAS.size(); j++)
 				{
 					UINT transformIndex = j * SceneArgs::NumGeometriesPerBLAS + i;
@@ -1340,6 +1350,8 @@ void D3D12RaytracingDynamicGeometry::ParseCommandLineArgs(WCHAR* argv[], int arg
 void D3D12RaytracingDynamicGeometry::UpdateAccelerationStructures(bool forceBuild)
 {
 	auto commandList = m_deviceResources->GetCommandList();
+	UINT frameIndex = m_deviceResources->GetCurrentFrameIndex();
+
 	bool isTopLevelASUpdateNeeded = false;
 	m_numFramesSinceASBuild++;
 
@@ -1378,9 +1390,8 @@ void D3D12RaytracingDynamicGeometry::UpdateAccelerationStructures(bool forceBuil
 			{
 				// ToDo Heuristic to do an update based on transform amplitude
 				D3D12_GPU_VIRTUAL_ADDRESS baseGeometryTransformGpuAddress =
-					m_geometryTransforms.GpuVirtualAddress() + i * SceneArgs::NumGeometriesPerBLAS;
-				bottomLevelAS.Build(commandList, m_accelerationStructureScratch.Get(), 
-					m_descriptorHeap.Get(), baseGeometryTransformGpuAddress, bUpdate);
+					m_geometryTransforms.GpuVirtualAddress(frameIndex) + i * SceneArgs::NumGeometriesPerBLAS;
+				bottomLevelAS.Build(commandList, m_accelerationStructureScratch.Get(), m_descriptorHeap.Get(), baseGeometryTransformGpuAddress, bUpdate);
 				isTopLevelASUpdateNeeded = true;
 			}
 		}

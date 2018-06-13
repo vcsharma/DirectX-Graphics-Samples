@@ -86,7 +86,7 @@ void BottomLevelAccelerationStructure::UpdateGeometryDescsTransform(D3D12_GPU_VI
 	for (UINT i = 0; i < m_geometryDescs.size(); i++)
 	{
 		auto& geometryDesc = m_geometryDescs[i];
-		geometryDesc.Triangles.Transform = baseGeometryTransformGPUAddress + i * sizeof(AlignedGeometryTransform3x4);
+		geometryDesc.Triangles.Transform = baseGeometryTransformGPUAddress + i * sizeof(geometryDesc);
 	}
 }
 
@@ -303,6 +303,8 @@ void TopLevelAccelerationStructure::Initialize(ID3D12Device* device, vector<Bott
 
 void TopLevelAccelerationStructure::Build(ID3D12GraphicsCommandList* commandList, ID3D12Resource* scratch, ID3D12DescriptorHeap* descriptorHeap, bool bUpdate)
 {
+	UINT frameIndex = g_pSample->GetDeviceResources().GetCurrentFrameIndex();
+
 	D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC topLevelBuildDesc = {};
 	{
 		topLevelBuildDesc.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
@@ -319,7 +321,7 @@ void TopLevelAccelerationStructure::Build(ID3D12GraphicsCommandList* commandList
 
 	if (g_pSample->GetRaytracingAPI() == RaytracingAPI::FallbackLayer)
 	{
-		topLevelBuildDesc.InstanceDescs = m_fallbackLayerInstanceDescs.GpuVirtualAddress();
+		topLevelBuildDesc.InstanceDescs = m_fallbackLayerInstanceDescs.GpuVirtualAddress(frameIndex);
 		// Set the descriptor heaps to be used during acceleration structure build for the Fallback Layer.
 		ID3D12DescriptorHeap *pDescriptorHeaps[] = { descriptorHeap };
 		g_pSample->GetFallbackCommandList()->SetDescriptorHeaps(ARRAYSIZE(pDescriptorHeaps), pDescriptorHeaps);
@@ -327,7 +329,7 @@ void TopLevelAccelerationStructure::Build(ID3D12GraphicsCommandList* commandList
 	}
 	else // DirectX Raytracing
 	{
-		topLevelBuildDesc.InstanceDescs = m_dxrInstanceDescs.GpuVirtualAddress();
+		topLevelBuildDesc.InstanceDescs = m_dxrInstanceDescs.GpuVirtualAddress(frameIndex);
 		g_pSample->GetDxrCommandList()->BuildRaytracingAccelerationStructure(&topLevelBuildDesc);
 	}
 	commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::UAV(m_accelerationStructure.Get()));
